@@ -30,10 +30,12 @@ export default function TemperatureRelevesTable() {
 
   const fetchData = async () => {
     setLoading(true);
-    const [{ data: relevesData }, { data: chambresData }] = await Promise.all([
+    const [relevesResult, chambresResult] = await Promise.all([
       supabase.from('temperature_releves').select('*').order('created_at', { ascending: false }).limit(20),
       supabase.from('chambres_froides').select('id, nom').eq('actif', true).order('nom'),
     ]);
+    const relevesData = relevesResult.data;
+    const chambresData = chambresResult.data;
     if (relevesData) {
       setReleves(relevesData.map((r: any) => ({
         id: r.id,
