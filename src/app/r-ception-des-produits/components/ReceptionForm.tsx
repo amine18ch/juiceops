@@ -195,7 +195,7 @@ export default function ReceptionForm({ onNewReception, onNewAnomalie }: Recepti
       const supabase = createClient();
       const [fournResult, prodsResult] = await Promise.all([
         supabase.from('fournisseurs').select('nom').eq('actif', true).order('nom'),
-        supabase.from('produits').select('nom').eq('actif', true).order('nom'),
+        supabase.from('produits').select('nom,type_produit').eq('actif', true).eq('type_produit', 'matiere_premiere').order('nom'),
       ]);
       const fourn = fournResult.data;
       const prods = prodsResult.data;

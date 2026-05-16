@@ -1,86 +1,49 @@
-import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { jwtVerify } from 'jose';
 
-function getProjectRef(): string {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  return url.match(/https:\/\/([^.]+)\./)?.[1] ?? '';
-}
+const JWT_SECRET = new TextEncoder().encode(
+  process.env.JWT_SECRET || 'juiceops-secret-key-change-in-production-2024!'
+);
+const COOKIE_NAME = 'juiceops-token';
 
-function injectTokenFromHeader(request: NextRequest): void {
-  const token = request.headers.get('x-sb-token');
-  if (!token) return;
-  const hasCookie = request.cookies.getAll().some((c) => c.name.includes('auth-token'));
-  if (hasCookie) return;
-  request.cookies.set(`sb-${getProjectRef()}-auth-token`, token);
-}
-
-// Protected routes that require authentication
-const PROTECTED_PREFIXES = [
-  '/dashboard',
-  '/r-ception-des-produits',
-  '/contr-le-des-emballages',
-  '/hygi-ne-check-list',
-  '/temp-ratures-de-stockage',
-  '/gestion-des-anomalies',
-  '/chantillonnage',
-  '/facturation-ventes',
+const PROTECTED = [
+  '/dashboard', '/r-ception-des-produits', '/contr-le-des-emballages',
+  '/hygi-ne-check-list', '/temp-ratures-de-stockage', '/gestion-des-anomalies',
+  '/chantillonnage', '/facturation-ventes', '/gestion-clients',
+  '/gestion-fournisseurs', '/gestion-produits', '/gestion-depots',
+  '/gestion-chambres-froides', '/gestion-utilisateurs',
 ];
 
+async function getUser(req: NextRequest) {
+  const token = req.cookies.get(COOKIE_NAME)?.value;
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 export async function middleware(request: NextRequest) {
-  injectTokenFromHeader(request);
-  let supabaseResponse = NextResponse.next({ request });
+  const user = await getUser(request);
+  const { pathname } = request.nextUrl;
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set(name, value);
-            supabaseResponse.cookies.set(name, value, options);
-          });
-        },
-      },
-    }
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const pathname = request.nextUrl.pathname;
-
-  // Redirect authenticated users away from login
   if (user && pathname === '/login') {
-    const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  // Redirect unauthenticated users to login for protected routes
-  const isProtected = PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
-  if (!user && isProtected) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/login';
-    return NextResponse.redirect(url);
+  if (!user && PROTECTED.some(p => pathname.startsWith(p))) {
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Redirect root to dashboard (or login if not authenticated)
   if (pathname === '/') {
-    const url = request.nextUrl.clone();
-    url.pathname = user ? '/dashboard' : '/login';
-    return NextResponse.redirect(url);
+    return NextResponse.redirect(new URL(user ? '/dashboard' : '/login', request.url));
   }
 
-  return supabaseResponse;
+  return NextResponse.next();
 }
 
 export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 };

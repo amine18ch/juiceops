@@ -1,108 +1,135 @@
-import { createBrowserClient } from '@supabase/ssr';
+'use client';
 
-const PFX = 'sb_';
+// Drop-in Supabase-compatible adapter — routes all calls to local MariaDB API
+// Same API surface as @supabase/supabase-js so no page files need to change.
 
-const canUseCookies = (() => {
-  let cache: boolean | null = null;
-  return () => {
-    if (typeof document === 'undefined') return false;
-    if (cache !== null) return cache;
-    const k = '__sb_test__';
-    document.cookie = `${k}=1; Path=/; SameSite=None; Secure; Partitioned`;
-    cache = document.cookie.includes(k);
-    document.cookie = `${k}=; Path=/; Max-Age=0; SameSite=None; Secure`;
-    return cache;
-  };
-})();
+let _authCallbacks: Array<(event: string, session: any) => void> = [];
+let _cachedUser: any = null;
+let _fetchingUser: Promise<any> | null = null;
 
-const fromCookies = () =>
-  typeof document === 'undefined' ? [] :
-  document.cookie.split(';').filter(Boolean).map((c) => {
-    const eqIdx = c.trim().indexOf('=');
-    const name = eqIdx >= 0 ? c.trim().slice(0, eqIdx) : c.trim();
-    const value = eqIdx >= 0 ? decodeURIComponent(c.trim().slice(eqIdx + 1)) : '';
-    return { name: name.trim(), value };
-  }).filter((c) => c.name);
+async function fetchMe(): Promise<any> {
+  if (_fetchingUser) return _fetchingUser;
+  _fetchingUser = fetch('/api/auth/me')
+    .then(r => r.json())
+    .then(d => { _cachedUser = d.user ?? null; _fetchingUser = null; return _cachedUser; })
+    .catch(() => { _cachedUser = null; _fetchingUser = null; return null; });
+  return _fetchingUser;
+}
 
-const fromStorage = () => {
-  try {
-    return Object.keys(localStorage)
-      .filter((k) => k.startsWith(PFX))
-      .map((k) => ({ name: k.slice(PFX.length), value: localStorage.getItem(k) || '' }));
-  } catch { return []; }
-};
+class QueryBuilder {
+  private _t: string;
+  private _op = 'select';
+  private _cols = '*';
+  private _filters: { col: string; val: any }[] = [];
+  private _orderCol?: string;
+  private _orderAsc = true;
+  private _limitN?: number;
+  private _single = false;
+  private _insertData?: any[];
+  private _updateData?: any;
+  private _upsertData?: any;
+  private _upsertConflict?: string;
+  private _inFilters: { col: string; vals: any[] }[] = [];
 
-const setCookie = (name: string, value: string, options?: any) => {
-  let s = `${name}=${encodeURIComponent(value)}; Path=${options?.path || '/'}; SameSite=None; Secure; Partitioned`;
-  if (options?.maxAge) s += `; Max-Age=${options.maxAge}`;
-  if (options?.domain) s += `; Domain=${options.domain}`;
-  if (options?.expires) s += `; Expires=${new Date(options.expires).toUTCString()}`;
-  document.cookie = s;
-};
-const deleteCookie = (name: string) => {
-  if (typeof document === 'undefined') return;
+  constructor(table: string) { this._t = table; }
 
-  const host = typeof window !== 'undefined' ? window.location.hostname : '';
-  const domains = ['', host, host ? `.${host}` : ''].filter(Boolean);
+  select(cols = '*') { this._cols = cols; return this; }
+  eq(col: string, val: any) { this._filters.push({ col, val }); return this; }
+  order(col: string, opts?: { ascending?: boolean }) {
+    this._orderCol = col; this._orderAsc = opts?.ascending ?? true; return this;
+  }
+  limit(n: number) { this._limitN = n; return this; }
+  single() { this._single = true; this._limitN = 1; return this; }
+  insert(data: any[]) { this._op = 'insert'; this._insertData = data; return this; }
+  update(data: any) { this._op = 'update'; this._updateData = data; return this; }
+  delete() { this._op = 'delete'; return this; }
+  upsert(data: any, opts?: { onConflict?: string }) {
+    this._op = 'upsert'; this._upsertData = data; this._upsertConflict = opts?.onConflict; return this;
+  }
+  in(col: string, vals: any[]) { this._inFilters.push({ col, vals }); return this; }
 
-  const variants = [
-    'Path=/; SameSite=Lax',
-    'Path=/; SameSite=None; Secure',
-    'Path=/; SameSite=None; Secure; Partitioned',
-  ];
-
-  variants.forEach((attrs) => {
-    document.cookie = `${name}=; Max-Age=0; ${attrs}`;
-    domains.forEach((domain) => {
-      document.cookie = `${name}=; Max-Age=0; Domain=${domain}; ${attrs}`;
-    });
-  });
-};
-
-const getToken = () =>
-  (canUseCookies() ? fromCookies() : fromStorage())
-    .find((c) => c.name.includes('auth-token'))?.value ?? null;
-
-if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
-  (window as any).__sb_patched__ = true;
-  const orig = window.fetch.bind(window);
-  window.fetch = (input, init) => {
-    const token = getToken();
-    const url = typeof input === 'string' ? input
-      : input instanceof URL ? input.href
-      : (input as Request).url;
-    if (token && (url.startsWith('/') || url.startsWith(window.location.origin))) {
-      init = { ...(init || {}), headers: { ...(init?.headers || {}), 'x-sb-token': token } };
+  async execute(): Promise<{ data: any; error: any }> {
+    try {
+      const res = await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          table: this._t, operation: this._op, cols: this._cols,
+          filters: this._filters, inFilters: this._inFilters,
+          orderCol: this._orderCol, orderAsc: this._orderAsc,
+          limitN: this._limitN, single: this._single,
+          insertData: this._insertData, updateData: this._updateData,
+          upsertData: this._upsertData, upsertConflict: this._upsertConflict,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) return { data: null, error: json.error || { message: 'Erreur requête' } };
+      return json;
+    } catch (err: any) {
+      return { data: null, error: { message: err.message } };
     }
-    return orig(input, init);
-  };
+  }
+
+  then(resolve: (v: any) => any, reject?: (r?: any) => any) {
+    return this.execute().then(resolve, reject);
+  }
 }
 
 export function createClient() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => canUseCookies() ? fromCookies() : fromStorage(),
-        setAll(cookiesToSet) {
-          if (typeof document === 'undefined') return;
-          if (canUseCookies()) {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              value ? setCookie(name, value, options)
-                    : deleteCookie(name)
-            );
-          } else {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              try {
-                value ? localStorage.setItem(`${PFX}${name}`, value)
-                      : localStorage.removeItem(`${PFX}${name}`);
-              } catch {}
-              if (value) setCookie(name, value, options);
-            });
-          }
-        },
+  return {
+    from: (table: string) => new QueryBuilder(table),
+
+    auth: {
+      async getSession() {
+        const user = await fetchMe();
+        return { data: { session: user ? { user } : null }, error: null };
       },
-    }
-  );
+
+      async getUser() {
+        const user = await fetchMe();
+        return { data: { user }, error: null };
+      },
+
+      async signInWithPassword({ email, password }: { email: string; password: string }) {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) return { data: null, error: data.error || { message: 'Connexion échouée' } };
+        _cachedUser = data.user;
+        const session = { user: data.user };
+        _authCallbacks.forEach(cb => cb('SIGNED_IN', session));
+        return { data: { user: data.user, session }, error: null };
+      },
+
+      async signOut() {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        _cachedUser = null;
+        _authCallbacks.forEach(cb => cb('SIGNED_OUT', null));
+        return { error: null };
+      },
+
+      async signUp(_opts: any) {
+        return { data: null, error: { message: 'Utilisez le panneau admin pour créer des comptes' } };
+      },
+
+      onAuthStateChange(callback: (event: string, session: any) => void) {
+        _authCallbacks.push(callback);
+        fetchMe().then(user => {
+          callback(user ? 'SIGNED_IN' : 'SIGNED_OUT', user ? { user } : null);
+        });
+        return {
+          data: {
+            subscription: {
+              unsubscribe: () => {
+                _authCallbacks = _authCallbacks.filter(cb => cb !== callback);
+              },
+            },
+          },
+        };
+      },
+    },
+  };
 }

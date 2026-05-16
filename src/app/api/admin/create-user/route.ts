@@ -1,68 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { createClient as createServerClient } from '@/lib/supabase/server';
+import { pool } from '@/lib/db';
+import { getUser } from '@/lib/auth';
+import bcrypt from 'bcryptjs';
 
-export async function POST(req: NextRequest) {
+const VALID_ROLES = new Set(['operateur','responsable_qualite','manager_production','direction']);
+
+export async function POST(request: NextRequest) {
+  const currentUser = await getUser(request);
+  if (!currentUser) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  if (currentUser.role !== 'direction') return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+
   try {
-    // Verify the caller is authenticated and has direction role
-    const serverSupabase = await createServerClient();
-    const { data: { user }, error: authError } = await serverSupabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
-    }
-
-    // Check caller's role
-    const { data: callerProfile } = await serverSupabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    if (!callerProfile || callerProfile.role !== 'direction') {
-      return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
-    }
-
-    const { email, password, full_name, role, is_active } = await req.json();
-
+    const { email, password, full_name, role } = await request.json();
     if (!email || !password || !full_name || !role) {
-      return NextResponse.json({ error: 'Champs obligatoires manquants' }, { status: 400 });
+      return NextResponse.json({ error: 'Tous les champs sont requis' }, { status: 400 });
+    }
+    if (!VALID_ROLES.has(role)) {
+      return NextResponse.json({ error: 'Rôle invalide' }, { status: 400 });
+    }
+    if (password.length < 8) {
+      return NextResponse.json({ error: 'Mot de passe trop court (min 8 caractères)' }, { status: 400 });
     }
 
-    // Use service role admin client to create user without affecting current session
-    const adminSupabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    );
-
-    const { data: newUser, error: createError } = await adminSupabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name, role },
-    });
-
-    if (createError) {
-      return NextResponse.json({ error: createError.message }, { status: 400 });
-    }
-
-    if (newUser?.user) {
-      const { error: profileError } = await adminSupabase.from('user_profiles').upsert({
-        id: newUser.user.id,
-        email,
-        full_name,
-        role,
-        is_active: is_active ?? true,
-      }, { onConflict: 'id' });
-
-      if (profileError) {
-        return NextResponse.json({ error: profileError.message }, { status: 400 });
+    const password_hash = await bcrypt.hash(password, 12);
+    const id = crypto.randomUUID();
+    const conn = await pool.getConnection();
+    try {
+      await conn.execute(
+        'INSERT INTO user_profiles (id, email, password_hash, full_name, role, is_active) VALUES (?, ?, ?, ?, ?, TRUE)',
+        [id, email.toLowerCase().trim(), password_hash, full_name, role]
+      );
+      conn.release();
+      return NextResponse.json({ user: { id, email, full_name, role, is_active: true } }, { status: 201 });
+    } catch (dbErr: any) {
+      conn.release();
+      if (dbErr.code === 'ER_DUP_ENTRY') {
+        return NextResponse.json({ error: 'Cet email est déjà utilisé' }, { status: 409 });
       }
+      throw dbErr;
     }
-
-    return NextResponse.json({ success: true });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Erreur serveur' }, { status: 500 });
+    console.error('create-user error:', err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

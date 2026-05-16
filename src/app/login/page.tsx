@@ -4,42 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLogo from '@/components/ui/AppLogo';
-import { Eye, EyeOff, LogIn, ChevronDown } from 'lucide-react';
-
-const DEMO_ACCOUNTS = [
-  {
-    role: 'Opérateur',
-    email: 'operateur@juiceops.fr',
-    password: 'juiceops123',
-    color: 'bg-blue-50 border-blue-200 text-blue-700',
-    dot: 'bg-blue-500',
-    description: 'Saisie des données',
-  },
-  {
-    role: 'Resp. Qualité',
-    email: 'qualite@juiceops.fr',
-    password: 'juiceops123',
-    color: 'bg-teal-50 border-teal-200 text-teal-700',
-    dot: 'bg-teal-500',
-    description: 'Validation + anomalies',
-  },
-  {
-    role: 'Manager Production',
-    email: 'manager@juiceops.fr',
-    password: 'juiceops123',
-    color: 'bg-orange-50 border-orange-200 text-orange-700',
-    dot: 'bg-orange-500',
-    description: 'Suivi global',
-  },
-  {
-    role: 'Direction',
-    email: 'direction@juiceops.fr',
-    password: 'juiceops123',
-    color: 'bg-purple-50 border-purple-200 text-purple-700',
-    dot: 'bg-purple-500',
-    description: 'Dashboard + KPI',
-  },
-];
+import { Eye, EyeOff, LogIn } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -49,7 +14,6 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [showDemo, setShowDemo] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,17 +29,9 @@ export default function LoginPage() {
     }
   };
 
-  const fillDemo = (acc: typeof DEMO_ACCOUNTS[0]) => {
-    setEmail(acc.email);
-    setPassword(acc.password);
-    setShowDemo(false);
-    setError('');
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-50 via-white to-zinc-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Card */}
         <div className="bg-white rounded-2xl shadow-xl border border-zinc-100 overflow-hidden">
           {/* Header */}
           <div className="bg-gradient-to-r from-teal-600 to-teal-700 px-8 py-8 text-center">
@@ -149,44 +105,6 @@ export default function LoginPage() {
                 {loading ? 'Connexion...' : 'Se connecter'}
               </button>
             </form>
-
-            {/* Demo accounts */}
-            <div className="mt-6">
-              <button
-                type="button"
-                onClick={() => setShowDemo(!showDemo)}
-                className="w-full flex items-center justify-between px-4 py-2.5 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded-lg text-sm text-zinc-600 transition-colors"
-              >
-                <span className="font-medium">Comptes de démonstration</span>
-                <ChevronDown
-                  size={16}
-                  className={`transition-transform ${showDemo ? 'rotate-180' : ''}`}
-                />
-              </button>
-
-              {showDemo && (
-                <div className="mt-2 space-y-2">
-                  {DEMO_ACCOUNTS.map((acc) => (
-                    <button
-                      key={acc.email}
-                      type="button"
-                      onClick={() => fillDemo(acc)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 border rounded-lg text-left transition-all hover:shadow-sm ${acc.color}`}
-                    >
-                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${acc.dot}`} />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-sm">{acc.role}</p>
-                        <p className="text-xs opacity-75 truncate">{acc.email}</p>
-                      </div>
-                      <span className="text-xs opacity-60 shrink-0">{acc.description}</span>
-                    </button>
-                  ))}
-                  <p className="text-center text-xs text-zinc-400 pt-1">
-                    Mot de passe : <span className="font-mono font-semibold">juiceops123</span>
-                  </p>
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </div>

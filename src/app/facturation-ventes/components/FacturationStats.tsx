@@ -50,7 +50,7 @@ export default function FacturationStats() {
   const items = [
     {
       label: 'CA total',
-      value: loading ? '…' : `${stats.caTotal.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €`,
+      value: loading ? '…' : `${stats.caTotal.toLocaleString('fr-TN', { maximumFractionDigits: 0 })} TND`,
       sub: `${stats.totalFactures} factures émises`,
       icon: TrendingUp,
       color: 'text-emerald-600',
@@ -69,7 +69,7 @@ export default function FacturationStats() {
     {
       label: 'En attente paiement',
       value: loading ? '…' : `${stats.enAttente} factures`,
-      sub: loading ? '…' : `${stats.montantImpaye.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} € impayés`,
+      sub: loading ? '…' : `${stats.montantImpaye.toLocaleString('fr-TN', { maximumFractionDigits: 0 })} TND impayés`,
       icon: Clock,
       color: 'text-amber-600',
       bg: 'bg-amber-50',

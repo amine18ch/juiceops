@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
 import RoleGuard from '@/components/RoleGuard';
 import { createClient } from '@/lib/supabase/client';
@@ -48,7 +48,7 @@ const emptyForm: UserFormData = {
 };
 
 export default function GestionUtilisateursPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { profile: currentUser } = useAuth();
 
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -75,7 +75,7 @@ export default function GestionUtilisateursPage() {
       .order('created_at', { ascending: false });
     if (!error && data) setUsers(data as UserProfile[]);
     setLoading(false);
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     fetchUsers();
@@ -129,8 +129,8 @@ export default function GestionUtilisateursPage() {
       setError('Le mot de passe est obligatoire pour un nouvel utilisateur.');
       return;
     }
-    if (!editingUser && form.password.length < 6) {
-      setError('Le mot de passe doit contenir au moins 6 caractères.');
+    if (!editingUser && form.password.length < 8) {
+      setError('Le mot de passe doit contenir au moins 8 caractères.');
       return;
     }
 
@@ -468,7 +468,7 @@ export default function GestionUtilisateursPage() {
                       type="password"
                       value={form.password}
                       onChange={(e) => setForm({ ...form, password: e.target.value })}
-                      placeholder="Minimum 6 caractères"
+                      placeholder="Minimum 8 caractères"
                       className="w-full px-3 py-2.5 text-sm border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
                     />
                   </div>

@@ -15,7 +15,7 @@ export default function FacturationPage() {
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-700">
-              CA Avril : 48 250 €
+              CA en cours de calcul
             </span>
           </div>
         </div>
