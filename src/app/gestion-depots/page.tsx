@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import RoleGuard from '@/components/RoleGuard';
 import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { Plus, Search, Edit2, Trash2, X, Warehouse, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface Depot {
@@ -38,6 +39,7 @@ export default function DepotsPage() {
 
 function DepotsContent() {
   const supabase = createClient();
+  const { user } = useAuth();
   const [depots, setDepots] = useState<Depot[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -82,11 +84,11 @@ function DepotsContent() {
     setSaving(true);
     setError('');
     if (editing) {
-      const { error } = await supabase.from('depots').update(form).eq('id', editing.id);
+      const { error } = await supabase.from('depots').update({ ...form, updated_at: new Date().toISOString() }).eq('id', editing.id);
       if (error) { setError(error.message); setSaving(false); return; }
       setSuccess('Dépôt modifié avec succès.');
     } else {
-      const { error } = await supabase.from('depots').insert([form]);
+      const { error } = await supabase.from('depots').insert([{ ...form, created_by: user?.id ?? null }]);
       if (error) { setError(error.message); setSaving(false); return; }
       setSuccess('Dépôt créé avec succès.');
     }
@@ -99,7 +101,13 @@ function DepotsContent() {
   const handleDelete = async (id: string) => {
     if (!confirm('Supprimer ce dépôt ? Les chambres froides associées seront dissociées.')) return;
     const { error } = await supabase.from('depots').delete().eq('id', id);
-    if (!error) { setSuccess('Dépôt supprimé.'); fetchDepots(); setTimeout(() => setSuccess(''), 3000); }
+    if (error) {
+      setError(error.message);
+    } else {
+      setSuccess('Dépôt supprimé.');
+      fetchDepots();
+      setTimeout(() => setSuccess(''), 3000);
+    }
   };
 
   const filtered = depots.filter(d =>
